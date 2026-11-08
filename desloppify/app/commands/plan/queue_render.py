@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 
 from desloppify.app.commands.helpers.command_runtime import command_runtime
 from desloppify.app.commands.helpers.guardrails import print_triage_guardrail_info
@@ -180,20 +181,23 @@ def _build_queue_items(
     plan: dict,
     include_skipped: bool,
     effective_cluster: str | None,
-    subjective_threshold: float,
+    subjective_threshold: float | None = None,
 ) -> tuple[list[dict], dict]:
-    """Build queue items with focus/collapse view transforms applied."""
-    queue = build_execution_queue(
-        state,
-        options=QueueBuildOptions(
-            count=None,
-            status="open",
-            include_subjective=True,
-            subjective_threshold=subjective_threshold,
-            plan=plan,
-            include_skipped=include_skipped,
-        ),
+    """Build queue items with focus/collapse view transforms applied.
+
+    Without an explicit ``subjective_threshold`` the execution queue resolves
+    the configured target itself.
+    """
+    options = QueueBuildOptions(
+        count=None,
+        status="open",
+        include_subjective=True,
+        plan=plan,
+        include_skipped=include_skipped,
     )
+    if subjective_threshold is not None:
+        options = replace(options, subjective_threshold=subjective_threshold)
+    queue = build_execution_queue(state, options=options)
     items = queue.get("items", [])
     if effective_cluster:
         items = filter_cluster_focus(items, plan, effective_cluster)
