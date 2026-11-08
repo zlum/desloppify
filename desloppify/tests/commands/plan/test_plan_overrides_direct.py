@@ -53,7 +53,10 @@ def test_override_resolve_helpers_cover_synthetic_split_and_blocked_stages(
             "workflow::create-plan",
             "strategy::balance-review-and-mechanical-work",
             "unused::src/a.py::X",
-        ]
+        ],
+        state={
+            "work_items": {"strategy::balance-review-and-mechanical-work": {}},
+        },
     )
     assert synthetic == ["triage::reflect", "workflow::create-plan"]
     assert remaining == [

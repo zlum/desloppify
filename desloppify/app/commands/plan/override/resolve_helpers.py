@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import fnmatch
+
 from desloppify.app.commands.plan.shared.cluster_membership import cluster_issue_ids
 from desloppify.base.output.terminal import colorize
 from desloppify.engine._plan.constants import (
@@ -15,6 +17,7 @@ from desloppify.engine.plan_triage import (
     TRIAGE_STAGE_IDS,
     TRIAGE_STAGE_PREREQUISITES,
 )
+
 
 def check_cluster_guard(patterns: list[str], plan: dict, state: dict) -> bool:
     """Return True when a cluster-name resolve should be blocked."""
@@ -65,22 +68,26 @@ def print_cluster_guard(cluster_name: str, issue_ids: list[str], state: dict) ->
             "dim",
         )
     )
-
-
-def split_synthetic_patterns(patterns: list[str]) -> tuple[list[str], list[str]]:
-    """Partition workflow-only synthetics from state-backed issue patterns.
-
-    Strategy findings use a synthetic-looking prefix for plan organization, but
-    they are persisted in ``work_items`` and must pass through ``cmd_resolve``
-    so their state changes to fixed.
-    """
-    def is_workflow_synthetic(pattern: str) -> bool:
-        return is_synthetic_id(pattern) and not pattern.startswith(STRATEGY_PREFIX)
-
-    synthetic = [pattern for pattern in patterns if is_workflow_synthetic(pattern)]
-    remaining = [
-        pattern for pattern in patterns if not is_workflow_synthetic(pattern)
+def split_synthetic_patterns(
+    patterns: list[str], *, state: dict | None = None
+) -> tuple[list[str], list[str]]:
+    """Keep persisted strategy work on the ordinary attested resolution path."""
+    work_items = (state.get("work_items") or state.get("issues", {})) if state else {}
+    persisted_strategy = {
+        pattern
+        for pattern in patterns
+        if state is not None
+        and pattern.startswith(STRATEGY_PREFIX)
+        and any(
+            issue_id.startswith(pattern) or fnmatch.fnmatch(issue_id, pattern)
+            for issue_id in work_items
+        )
+    }
+    synthetic = [
+        pattern for pattern in patterns
+        if is_synthetic_id(pattern) and pattern not in persisted_strategy
     ]
+    remaining = [pattern for pattern in patterns if pattern not in synthetic]
     return synthetic, remaining
 
 
