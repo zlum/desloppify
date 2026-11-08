@@ -23,6 +23,8 @@ from desloppify.languages._framework.generic_parts.tool_runner import (
     run_tool_result,
 )
 from desloppify.languages._framework.generic_parts.tool_spec import ToolSpec
+from desloppify.base.discovery.file_paths import matches_exclusion
+from desloppify.base.discovery.source import DEFAULT_EXCLUSIONS, get_exclusions
 from desloppify.engine._state.filtering import make_issue
 
 

@@ -45,6 +45,14 @@ def _strip_inline_comments(line: str) -> str:
     return _INLINE_COMMENT_RE.sub("", line)
 
 
+def _path_key(filepath: str) -> str:
+    """Normalise a path for identity comparison across relative/absolute forms.
+
+    normcase folds case and separators on Windows and is a no-op elsewhere.
+    """
+    return os.path.normcase(os.path.abspath(filepath))
+
+
 def ts_build_dep_graph(
     path: Path,
     spec: TreeSitterLangSpec,
@@ -84,13 +92,13 @@ def ts_build_dep_graph(
     query = _make_query(language, spec.import_query)
 
     scan_path = str(path.resolve())
-    file_keys = {os.path.abspath(filepath): filepath for filepath in file_list}
+    file_keys = {_path_key(filepath): filepath for filepath in file_list}
     # Discovery may also return paths relative to the scan root rather than
     # the current directory; index that form too without overriding cwd keys.
     for filepath in file_list:
         if not os.path.isabs(filepath):
             file_keys.setdefault(
-                os.path.abspath(os.path.join(scan_path, filepath)), filepath
+                _path_key(os.path.join(scan_path, filepath)), filepath
             )
     graph: dict[str, dict[str, Any]] = {}
 
@@ -137,10 +145,10 @@ def ts_build_dep_graph(
 
             # Resolvers may return project-relative, scan-relative, or absolute
             # paths. Match in one path space, retaining the discovered graph keys.
-            resolved_key = file_keys.get(os.path.abspath(resolved))
+            resolved_key = file_keys.get(_path_key(resolved))
             if resolved_key is None and not os.path.isabs(resolved):
                 resolved_key = file_keys.get(
-                    os.path.abspath(os.path.join(scan_path, resolved))
+                    _path_key(os.path.join(scan_path, resolved))
                 )
             if resolved_key is None:
                 continue
@@ -210,7 +218,7 @@ def _add_framework_importers(
                 continue
             if not os.path.isabs(resolved):
                 resolved = os.path.normpath(os.path.join(scan_path, resolved))
-            key = file_keys.get(os.path.abspath(resolved))
+            key = file_keys.get(_path_key(resolved))
             if key is None:
                 continue
             graph[key]["importers"].add(importer_abs)
