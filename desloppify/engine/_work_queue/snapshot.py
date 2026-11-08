@@ -38,7 +38,6 @@ from desloppify.engine._state.issue_semantics import (
     counts_toward_objective_backlog,
     is_assessment_request,
     is_review_work_item,
-    is_triage_finding,
 )
 from desloppify.engine._state.schema import StateModel
 from desloppify.engine._work_queue.ranking import build_issue_items
@@ -122,6 +121,7 @@ def _is_objective_item(item: WorkQueueItem, *, skipped_ids: set[str]) -> bool:
 
 
 def _review_issue_items(items: Iterable[WorkQueueItem]) -> list[WorkQueueItem]:
+    """Return subjective review findings eligible for review postflight."""
     return [item for item in items if is_review_work_item(item)]
 
 
@@ -168,7 +168,6 @@ def _merge_execution_candidates(
 ) -> tuple[list[WorkQueueItem], list[WorkQueueItem]]:
     """Merge queue-owned execution items with objective defaults."""
     explicit_queue_ids = _live_planned_queue_ids(plan)
-
     queued_non_review_items = [
         item
         for item in all_issue_items
