@@ -630,6 +630,7 @@ def test_jvm_resolvers_find_imports_in_gradle_modules(tmp_path: Path) -> None:
 
 
 def test_js_dep_graph_records_commonjs_require_edges(tmp_path: Path) -> None:
+    pytest.importorskip("tree_sitter_language_pack")
     """CommonJS ``require()`` must create graph edges, not just ESM ``import``.
 
     Regression: the JS/TS import queries matched only ``import_statement``, so a
@@ -660,6 +661,7 @@ def test_js_dep_graph_records_commonjs_require_edges(tmp_path: Path) -> None:
 
 
 def test_js_dep_graph_resolves_edges_for_relative_file_lists(tmp_path: Path, monkeypatch) -> None:
+    pytest.importorskip("tree_sitter_language_pack")
     """Edges must resolve when ``file_list`` holds paths relative to the cwd.
 
     Regression: resolved imports were normalized with

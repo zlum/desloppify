@@ -10,6 +10,10 @@ still detected correctly.
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("tree_sitter_language_pack")
+
 import textwrap
 
 
