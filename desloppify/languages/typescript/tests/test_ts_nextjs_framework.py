@@ -187,7 +187,7 @@ def test_typescript_config_includes_nextjs_framework_phases_and_next_lint_is_slo
     cfg = TypeScriptConfig()
     labels = [getattr(p, "label", "") for p in cfg.phases]
     assert "Next.js framework smells" in labels
-    lint = next(p for p in cfg.phases if getattr(p, "label", "") == "next lint")
+    lint = next(p for p in cfg.phases if getattr(p, "label", "") == "Next.js lint")
     assert lint.slow is True
 
 
@@ -226,7 +226,7 @@ def test_next_lint_phase_is_skipped_when_include_slow_false():
     selected = plan_scan_mod._select_phases(run, include_slow=False, profile="full")
     labels = [getattr(p, "label", "") for p in selected]
     assert "Next.js framework smells" in labels
-    assert "next lint" not in labels
+    assert "Next.js lint" not in labels
 
 
 @pytest.mark.parametrize("version,eslint", [("15.5.0", False), ("16.0.0", True), ("17.0.0-canary.1", True), ("v16.0.0", True)])
@@ -249,7 +249,7 @@ def test_next_lint_uses_installed_version(tmp_path, monkeypatch, version, eslint
     monkeypatch.setattr(phases, "make_tool_phase", fake_phase)
     phase = phases._framework_tool_phase(NEXTJS_SPEC, NEXTJS_SPEC.tools[0])
     assert phase.run(tmp_path, _FakeLang()) == ([], {"next_lint": 1})
-    expected = "npx --no-install eslint . --format json" if eslint else "npx --no-install next lint --format json"
+    expected = 'npx --no-install eslint "**/*.{js,jsx,ts,tsx}" --format json' if eslint else "npx --no-install next lint --format json"
     assert calls == [(expected, tmp_path.resolve())]
 
 
