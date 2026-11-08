@@ -220,6 +220,10 @@ def _check_sequence_for_unreachable(block_node, filepath: str, entries: list[dic
 
 def _terminator_type(node) -> str | None:
     """Return the terminating statement type, including wrapped Dart throws."""
+    if node.type == "yield_statement" and any(
+        child.type == "break" for child in node.children
+    ):
+        return node.type
     if node.type in _TERMINATOR_TYPES:
         return node.type
 
