@@ -8,24 +8,24 @@ from pathlib import Path
 from typing import NamedTuple
 
 from desloppify.app.commands.helpers.transition_messages import emit_transition_message
+from desloppify.app.commands.resolve.plan_load import warn_plan_load_degraded_once
 from desloppify.base.config import target_strict_score_from_config
 from desloppify.base.exception_sets import PLAN_LOAD_EXCEPTIONS
 from desloppify.base.output.terminal import colorize
-from desloppify.app.commands.resolve.plan_load import warn_plan_load_degraded_once
-from desloppify.engine._plan.sync import live_planned_queue_empty, reconcile_plan
 from desloppify.engine._plan.cluster_semantics import EXECUTION_STATUS_DONE
-from desloppify.engine.plan_ops import (
-    append_log_entry,
-    auto_complete_steps,
-    purge_ids,
-)
 from desloppify.engine._plan.refresh_lifecycle import (
     current_lifecycle_phase,
     invalidate_postflight_scan,
 )
+from desloppify.engine._plan.sync import live_planned_queue_empty, reconcile_plan
 from desloppify.engine._state.progression import (
     maybe_append_entered_planning,
     maybe_append_execution_drain,
+)
+from desloppify.engine.plan_ops import (
+    append_log_entry,
+    auto_complete_steps,
+    purge_ids,
 )
 from desloppify.engine.plan_state import (
     add_uncommitted_issues,
@@ -108,7 +108,7 @@ def _step_ref_sets(state: dict | None, resolved_ids: list[str]) -> tuple[set[str
             refs.add(detail["summary_hash"])
         if issue_id in resolved_refs:
             resolved_refs.update(refs)
-        if issue.get("status") == "open" and issue_id not in resolved_ids:
+        if issue.get("status") != "fixed" and issue_id not in resolved_ids:
             open_refs.update(refs)
     return resolved_refs, open_refs
 
@@ -135,12 +135,6 @@ def update_living_plan_after_resolve(
         completed_clusters = _completed_cluster_names(plan, all_resolved)
         phase_before = current_lifecycle_phase(plan)
         purged = purge_ids(plan, all_resolved)
-        resolved_refs, open_refs = _step_ref_sets(state, all_resolved)
-        step_messages = auto_complete_steps(
-            plan, resolved_refs=resolved_refs, open_refs=open_refs
-        )
-        for msg in step_messages:
-            print(colorize(msg, "green"))
         append_log_entry(
             plan,
             "resolve",
@@ -149,6 +143,13 @@ def update_living_plan_after_resolve(
             note=getattr(args, "note", None),
             detail={"status": args.status, "attestation": attestation},
         )
+        if args.status == "fixed":
+            resolved_refs, open_refs = _step_ref_sets(state, all_resolved)
+            step_messages = auto_complete_steps(
+                plan, resolved_refs=resolved_refs, open_refs=open_refs
+            )
+            for msg in step_messages:
+                print(colorize(msg, "green"))
         if completed_clusters:
             for cluster_name in completed_clusters:
                 append_log_entry(
