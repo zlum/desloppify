@@ -406,6 +406,7 @@ class _Partitions(NamedTuple):
     triage_items: list[WorkQueueItem]
     explicit_queue_items: list[WorkQueueItem]
     anchored_execution_items: list[WorkQueueItem]
+    skipped_objective_items: list[WorkQueueItem]
 
 
 def _build_item_partitions(
@@ -436,6 +437,14 @@ def _build_item_partitions(
         item
         for item in all_issue_items
         if _is_objective_item(item, skipped_ids=skipped_ids)
+    ]
+    # Skipped objective issues stay out of counts and execution, but the
+    # backlog must still carry them so ``include_skipped`` can show them.
+    skipped_objective_items = [
+        item
+        for item in all_issue_items
+        if item.get("id", "") in skipped_ids
+        and _is_objective_item(item, skipped_ids=set())
     ]
     executable_objective_ids = _executable_objective_ids(
         {item.get("id", "") for item in objective_items},
@@ -510,6 +519,7 @@ def _build_item_partitions(
         triage_items=triage_items,
         explicit_queue_items=explicit_queue_items,
         anchored_execution_items=anchored_execution_items,
+        skipped_objective_items=skipped_objective_items,
     )
 
 
@@ -517,21 +527,25 @@ def _build_backlog(
     p: _Partitions,
     execution_ids: set[str],
 ) -> list[WorkQueueItem]:
-    # Mechanical findings also participate in triage, so partitions overlap.
-    backlog_by_id = {
-        item["id"]: item
-        for item in (
-            *p.objective_items,
-            *p.initial_review_items,
-            *p.postflight_assessment_items,
-            *p.review_issue_items,
-            *p.scan_items,
-            *p.postflight_workflow_items,
-            *p.triage_items,
-        )
-        if item["id"] not in execution_ids
-    }
-    return list(backlog_by_id.values())
+    # Mechanical findings are also triage candidates, so partitions can overlap.
+    # Keep their first representation before ranking, counts and paging.
+    seen_ids = set(execution_ids)
+    backlog_items: list[WorkQueueItem] = []
+    for item in [
+        *p.objective_items,
+        *p.initial_review_items,
+        *p.postflight_assessment_items,
+        *p.review_issue_items,
+        *p.scan_items,
+        *p.postflight_workflow_items,
+        *p.triage_items,
+        *p.skipped_objective_items,
+    ]:
+        item_id = item.get("id", "")
+        if item_id not in seen_ids:
+            seen_ids.add(item_id)
+            backlog_items.append(item)
+    return backlog_items
 
 
 # ---------------------------------------------------------------------------
