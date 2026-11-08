@@ -124,9 +124,15 @@ def resolve_issues(
     status: str,
     note: str | None = None,
     attestation: str | None = None,
+    *,
+    reattribute_auto_resolved: bool = False,
 ) -> list[str]:
     """Set issue status for matches and return affected issue IDs."""
-    status_filter = "all" if status == "open" else "open"
+    status_filter = (
+        "all" if status == "open" or (
+            status == "fixed" and reattribute_auto_resolved and bool(attestation)
+        ) else "open"
+    )
     matches = match_issues(state, pattern, status_filter=status_filter)
     return _resolve_matches(state, matches, status, note, attestation)
 
@@ -192,6 +198,8 @@ def _resolve_matches(
 
     for issue in matches:
         previous_status = str(issue.get("status", "open")).strip() or "open"
+        if status == "fixed" and previous_status not in {"open", "auto_resolved"}:
+            continue
         if status == "open" and previous_status == "open":
             continue
 
@@ -223,6 +231,14 @@ def _resolve_matches(
             reopen_attestation["previous_status"] = previous_status
             extra_updates["resolution_attestation"] = reopen_attestation
 
+        resolution_attestation = {
+            "kind": "manual",
+            "text": attestation,
+            "attested_at": now,
+            "scan_verified": False,
+        }
+        if previous_status == "auto_resolved":
+            resolution_attestation["previous_status"] = previous_status
         updates: dict[str, object] = {
             "status": status,
             "note": note,
@@ -230,12 +246,7 @@ def _resolve_matches(
             "suppressed": False,
             "suppressed_at": None,
             "suppression_pattern": None,
-            "resolution_attestation": {
-                "kind": "manual",
-                "text": attestation,
-                "attested_at": now,
-                "scan_verified": False,
-            },
+            "resolution_attestation": resolution_attestation,
         }
         updates.update(extra_updates)
         issue.update(updates)
