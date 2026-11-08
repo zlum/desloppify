@@ -199,3 +199,27 @@ def test_compile_database_expands_headers_in_each_include_context(tmp_path):
     assert graph[str(shared)]["imports"] == {str(first_variant), str(second_variant)}
     assert graph[str(first_variant)]["importers"] == {str(shared)}
     assert graph[str(second_variant)]["importers"] == {str(shared)}
+
+
+def test_relative_compile_directory_is_relative_to_database(tmp_path, monkeypatch):
+    source = _write(tmp_path, "src/main.c", '#include "generated.h"\n')
+    header = _write(tmp_path, "generated/generated.h", "#pragma once\n")
+    (tmp_path / "build").mkdir()
+    (tmp_path / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": "build",
+                    "file": "../src/main.c",
+                    "arguments": ["cc", "-I../generated", "-c", "../src/main.c"],
+                }
+            ]
+        )
+    )
+    unrelated = tmp_path / "other"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+
+    graph = build_cxx_dep_graph(tmp_path)
+
+    assert str(header) in graph[str(source)]["imports"]
