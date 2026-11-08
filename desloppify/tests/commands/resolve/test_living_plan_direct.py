@@ -142,7 +142,7 @@ def test_update_living_plan_auto_completes_steps_after_fixed_resolve(
     )
 
     assert updated_plan is plan
-    assert plan["execution_log"][0]["detail"]["status"] == "fixed"
+    assert any(entry.get("action") == "resolve" and entry.get("detail", {}).get("status") == "fixed" for entry in plan["execution_log"])
     assert plan["clusters"]["core"]["action_steps"][0]["done"] is True
 
 

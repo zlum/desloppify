@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from desloppify.languages.cxx.compile_commands import split_compile_command
+
 import os
 import re
 import shlex
@@ -79,9 +81,7 @@ def _expand_response_tokens(
         if response in active or len(active) >= 16:
             continue
         try:
-            nested = shlex.split(
-                response.read_text(encoding="utf-8-sig"), posix=os.name != "nt"
-            )
+            nested = split_compile_command(response.read_text(encoding="utf-8-sig"))
         except (OSError, UnicodeError, ValueError):
             # Preserve unresolved arguments without inventing include paths.
             expanded.append(token)
@@ -98,7 +98,7 @@ def _parse_command_tokens(entry: dict[str, Any]) -> list[str]:
         command = entry.get("command")
         if not isinstance(command, str) or not command.strip():
             return []
-        tokens = shlex.split(command, posix=os.name != "nt")
+        tokens = split_compile_command(command)
     directory_value = entry.get("directory")
     directory = (
         Path(directory_value)

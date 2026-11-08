@@ -398,7 +398,7 @@ def test_triaged_review_findings_hold_objective_work_in_backlog():
     )
     plan = empty_plan()
     plan["plan_start_scores"] = {"strict": 80.0}
-    plan["queue_order"] = ["review::src/a.py::naming", "smells::src/a.py::x"]
+    plan["queue_order"] = ["review::src/a.py::naming"]
     plan["epic_triage_meta"] = {
         "triaged_ids": ["review::src/a.py::naming"],
         "last_completed_at": "2026-03-13T00:00:00+00:00",

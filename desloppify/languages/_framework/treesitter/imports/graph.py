@@ -97,6 +97,7 @@ def ts_build_dep_graph(
     # the current directory; index that form too without overriding cwd keys.
     for filepath in file_list:
         if not os.path.isabs(filepath):
+            file_keys.setdefault(_path_key(resolve_path(filepath)), filepath)
             file_keys.setdefault(
                 _path_key(os.path.join(scan_path, filepath)), filepath
             )
@@ -107,7 +108,10 @@ def ts_build_dep_graph(
         graph[f] = {"imports": set(), "importers": set()}
 
     for filepath in file_list:
-        cached = get_or_parse_tree(filepath, parser, spec.grammar)
+        source_path = filepath
+        if not Path(filepath).is_file() and Path(resolve_path(filepath)).is_file():
+            source_path = resolve_path(filepath)
+        cached = get_or_parse_tree(source_path, parser, spec.grammar)
         if cached is None:
             continue
         _source, tree = cached
@@ -139,7 +143,7 @@ def ts_build_dep_graph(
                 ).strip("\"'`")
                 import_text = f"{prefix_text}\\{import_text}"
 
-            resolved = spec.resolve_import(import_text, filepath, scan_path)
+            resolved = spec.resolve_import(import_text, source_path, scan_path)
             if resolved is None:
                 continue
 
@@ -150,7 +154,7 @@ def ts_build_dep_graph(
                 resolved_key = file_keys.get(
                     _path_key(os.path.join(scan_path, resolved))
                 )
-            if resolved_key is None:
+            if resolved_key is None or resolved_key == filepath:
                 continue
 
             graph[filepath]["imports"].add(resolved_key)

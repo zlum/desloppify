@@ -150,7 +150,7 @@ class TestResolveTsImport:
             expected = str(tmp_path / f"apps/{package}/source/utils.ts")
             if relative_paths:
                 test = str(Path(test).relative_to(tmp_path))
-                expected = f"apps/{package}/source/utils.ts"
+                expected = str(Path(f"apps/{package}/source/utils.ts"))
             assert (
                 _resolve_import("@/utils", test, production, "typescript") == expected
             )

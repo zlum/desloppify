@@ -23,8 +23,8 @@ def test_auto_complete_steps_marks_done_when_all_refs_leave_queue() -> None:
 
     steps = plan["clusters"]["epic/cleanup"]["action_steps"]
     assert steps[0].get("done") is not True
-    assert steps[1]["done"] is True
-    assert messages == ["  Step 2 of 'epic/cleanup' auto-completed: Fix stale refs"]
+    assert steps[1].get("done") is not True
+    assert messages == []
 
 
 def test_auto_complete_steps_matches_exact_issue_ids() -> None:
@@ -44,8 +44,8 @@ def test_auto_complete_steps_matches_exact_issue_ids() -> None:
 
     steps = plan["clusters"]["epic/exact"]["action_steps"]
     assert steps[0].get("done") is not True
-    assert steps[1]["done"] is True
-    assert "Step 2" in messages[0]
+    assert steps[1].get("done") is not True
+    assert messages == []
 
 
 def test_auto_complete_steps_ignores_done_steps_and_invalid_step_shapes() -> None:

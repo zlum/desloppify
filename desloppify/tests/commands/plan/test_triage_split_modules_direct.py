@@ -1421,6 +1421,10 @@ def test_orchestrator_pipeline_writes_exact_cli_helper(tmp_path: Path) -> None:
 
 
 def test_orchestrator_pipeline_cli_helper_propagates_state(monkeypatch, tmp_path: Path) -> None:
+    import os
+    import pytest
+    if os.name == "nt":
+        pytest.skip("Requires native execution of POSIX shell scripts")
     import subprocess
 
     recorded_args = tmp_path / "recorded-args.txt"

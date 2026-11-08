@@ -90,7 +90,11 @@ def test_symlinked_state_uses_plan_beside_selected_path(monkeypatch, tmp_path, c
     target = _write_queue(tmp_path / "stored-state", "unrelated")
     target.write_bytes(selected.read_bytes())
     selected.unlink()
-    selected.symlink_to(target)
+    try:
+        selected.symlink_to(target)
+    except OSError as exc:
+        import pytest
+        pytest.skip(f"Symlinks unavailable: {exc}")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "sys.argv", ["desloppify", "--lang", "rust", "next", "--state", str(selected)]

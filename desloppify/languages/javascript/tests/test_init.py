@@ -116,7 +116,7 @@ def test_dep_graph_treats_astro_frontmatter_as_importer(cfg, tmp_path, set_proje
     )
 
     graph = cfg.build_dep_graph(tmp_path)
-    config_key = str(config.resolve())
+    config_key = next(key for key in graph if Path(key).name == config.name)
     astro_key = str((pages / "index.astro").resolve())
 
     assert config_key in graph, (
@@ -150,8 +150,8 @@ def test_dep_graph_treats_mjs_config_as_importer(cfg, tmp_path, set_project_root
     )
 
     graph = cfg.build_dep_graph(tmp_path)
-    helper_key = str(helper.resolve())
-    mjs_key = str((tmp_path / "tool.config.mjs").resolve())
+    helper_key = next(key for key in graph if Path(key).name == helper.name)
+    mjs_key = next(key for key in graph if Path(key).name == "tool.config.mjs")
 
     assert helper_key in graph
     assert mjs_key in graph[helper_key]["importers"]
