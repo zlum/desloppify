@@ -166,17 +166,24 @@ def resolve_lua_import(import_text: str, source_file: str, scan_path: str) -> st
 
 
 def resolve_js_import(import_text: str, source_file: str, scan_path: str) -> str | None:
-    """Resolve JS/ESM relative imports to local files."""
-    del scan_path
+    """Resolve JS/ESM relative imports to local files.
+
+    A relative ``source_file`` is tried against the current directory first,
+    then against ``scan_path``, so results do not depend on where the scan runs.
+    """
     if not import_text or not import_text.startswith("."):
         return None
 
     base = os.path.dirname(source_file)
-    candidate = os.path.normpath(os.path.join(base, import_text))
-    for ext in ("", ".js", ".jsx", ".mjs", ".cjs", "/index.js", "/index.jsx"):
-        path = candidate + ext
-        if os.path.isfile(path):
-            return path
+    bases = [base]
+    if not os.path.isabs(base):
+        bases.append(os.path.join(scan_path, base))
+    for candidate_base in bases:
+        candidate = os.path.normpath(os.path.join(candidate_base, import_text))
+        for ext in ("", ".js", ".jsx", ".mjs", ".cjs", "/index.js", "/index.jsx"):
+            path = candidate + ext
+            if os.path.isfile(path):
+                return path
     return None
 
 
