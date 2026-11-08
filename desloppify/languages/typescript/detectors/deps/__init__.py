@@ -39,8 +39,20 @@ from desloppify.languages.typescript.detectors.deps.runtime import (
 from desloppify.languages.typescript.detectors.deps.runtime import (
     ts_alias_resolver as _ts_alias_resolver,
 )
+from desloppify.languages._framework.frameworks.registry import (
+    framework_source_extensions,
+)
 
-_FRAMEWORK_EXTENSIONS = (".svelte", ".vue", ".astro")
+
+def _framework_extensions() -> tuple[str, ...]:
+    """Framework source extensions for the node ecosystem, registry-driven.
+
+    Resolved at call time so newly-registered specs (e.g. by tests via
+    ``register_framework_spec``) are picked up without module reload.
+    """
+    return framework_source_extensions(ecosystem="node")
+
+
 _IMPORT_HINT_RE = re.compile(r"""(?:\bfrom\s+['"]|\bimport\s+['"])""")
 _IMPORT_SPEC_RE = re.compile(
     r"""(?:from\s+|import\s+)(?:type\s+)?['"]([^'"]+)['"]"""
@@ -151,7 +163,7 @@ def build_dep_graph(
                 source_root=project_root,
             )
 
-    fw_files = find_source_files(path, list(_FRAMEWORK_EXTENSIONS))
+    fw_files = find_source_files(path, list(_framework_extensions()))
     if fw_files:
         fw_hits = grep_files(_IMPORT_HINT_RE.pattern, fw_files)
         for filepath, _lineno, content in fw_hits:
@@ -282,7 +294,7 @@ def build_dynamic_import_targets(path: Path, extensions: list[str]) -> set[str]:
     return _build_dynamic_import_targets(
         path,
         extensions,
-        framework_extensions=_FRAMEWORK_EXTENSIONS,
+        framework_extensions=_framework_extensions(),
         grep_files_fn=grep_files,
         find_source_files_fn=find_source_files,
     )
