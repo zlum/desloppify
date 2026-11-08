@@ -37,6 +37,13 @@ def ts_build_dep_graph(
 
     scan_path = str(path.resolve())
     file_keys = {os.path.abspath(filepath): filepath for filepath in file_list}
+    # Discovery may also return paths relative to the scan root rather than
+    # the current directory; index that form too without overriding cwd keys.
+    for filepath in file_list:
+        if not os.path.isabs(filepath):
+            file_keys.setdefault(
+                os.path.abspath(os.path.join(scan_path, filepath)), filepath
+            )
     graph: dict[str, dict[str, Any]] = {}
 
     # Initialize all files in the graph.
