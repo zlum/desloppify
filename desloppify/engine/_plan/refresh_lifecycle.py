@@ -26,8 +26,9 @@ Persisted markers live in ``plan["refresh_state"]`` and have distinct roles:
 
 Display phase is never persisted. ``derive_display_phase()`` computes the
 user-visible phase from boolean signals with this strict priority chain:
-``initial_review > prefer_scan > assessment > workflow > triage >
-review_postflight > execute > scan``. ``user_facing_mode()`` collapses all
+``promoted_execution > initial_review > prefer_scan > assessment > workflow >
+triage > review_postflight > execute > scan``. Explicit promotion is a user
+override of the normal planning gates. ``user_facing_mode()`` collapses all
 non-``execute`` display phases back to the persisted ``"plan"`` mode.
 """
 
@@ -232,8 +233,11 @@ def derive_display_phase(
     has_execution: bool,
     fresh_boundary: bool,
     prefer_scan: bool,
+    has_promoted_execution: bool = False,
 ) -> str:
     """Return the canonical display phase from normalized boolean signals."""
+    if has_execution and has_promoted_execution:
+        return LIFECYCLE_PHASE_EXECUTE
     if fresh_boundary and has_initial_review:
         return LIFECYCLE_PHASE_REVIEW_INITIAL
     if prefer_scan:

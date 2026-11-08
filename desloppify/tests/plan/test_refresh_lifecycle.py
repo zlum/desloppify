@@ -292,6 +292,20 @@ def test_derive_display_phase_respects_priority_chain() -> None:
     assert (
         derive_display_phase(
             has_initial_review=True,
+            has_postflight_assessment=True,
+            has_workflow=True,
+            has_triage=True,
+            has_review_postflight=True,
+            has_execution=True,
+            fresh_boundary=True,
+            prefer_scan=True,
+            has_promoted_execution=True,
+        )
+        == "execute"
+    )
+    assert (
+        derive_display_phase(
+            has_initial_review=True,
             has_postflight_assessment=False,
             has_workflow=True,
             has_triage=False,
