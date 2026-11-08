@@ -92,3 +92,70 @@ def test_compile_database_marks_only_actual_translation_unit_roots(tmp_path):
     assert graph[str(compiled.resolve())]["is_entry_point"] is True
     for path in (unused, header, malformed):
         assert not graph[str(path.resolve())].get("is_entry_point", False)
+
+
+def test_compile_database_expands_response_files_and_follows_header_includes(tmp_path):
+    source = _write(tmp_path, "src/unit.cpp", '#include "Public/api.hpp"\n')
+    public = _write(
+        tmp_path, "module/Public/api.hpp", '#include "Detail/implementation.hpp"\n'
+    )
+    detail = _write(
+        tmp_path, "module/Detail/implementation.hpp", '#include "Public/api.hpp"\n'
+    )
+    (tmp_path / "nested.rsp").write_text('-I "module"')
+    (tmp_path / "compile.rsp").write_text("@nested.rsp -c src/unit.cpp")
+    (tmp_path / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": str(tmp_path),
+                    "file": str(source),
+                    "command": "clang++ @compile.rsp",
+                },
+            ]
+        )
+    )
+    graph = build_cxx_dep_graph(tmp_path)
+    assert graph[str(source.resolve())]["imports"] == {str(public.resolve())}
+    assert graph[str(public.resolve())]["imports"] == {str(detail.resolve())}
+    assert graph[str(detail.resolve())]["imports"] == {str(public.resolve())}
+
+
+def test_response_file_cycles_and_missing_files_do_not_invent_includes(tmp_path):
+    from desloppify.languages.cxx.detectors.deps import _parse_command_tokens
+
+    (tmp_path / "a.rsp").write_text("@b.rsp -Iinclude")
+    (tmp_path / "b.rsp").write_text("@a.rsp -DVALUE=1")
+    tokens = _parse_command_tokens(
+        {"directory": str(tmp_path), "arguments": ["clang++", "@a.rsp", "@missing.rsp"]}
+    )
+    assert tokens == ["clang++", "-DVALUE=1", "-Iinclude", "@missing.rsp"]
+
+
+def test_shared_header_keeps_each_translation_units_include_context(tmp_path):
+    first = _write(tmp_path, "first.cpp", '#include "api.hpp"\n')
+    second = _write(tmp_path, "second.cpp", '#include "api.hpp"\n')
+    public = _write(tmp_path, "common/api.hpp", "#include <config.hpp>\n")
+    first_config = _write(tmp_path, "one/config.hpp", "#pragma once\n")
+    second_config = _write(tmp_path, "two/config.hpp", "#pragma once\n")
+    (tmp_path / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": str(tmp_path),
+                    "file": str(first),
+                    "arguments": ["clang++", "-Icommon", "-Ione", "-c", str(first)],
+                },
+                {
+                    "directory": str(tmp_path),
+                    "file": str(second),
+                    "arguments": ["clang++", "-Icommon", "-Itwo", "-c", str(second)],
+                },
+            ]
+        )
+    )
+    graph = build_cxx_dep_graph(tmp_path)
+    assert graph[str(public.resolve())]["imports"] == {
+        str(first_config.resolve()),
+        str(second_config.resolve()),
+    }
