@@ -19,12 +19,23 @@ class CompileCommand:
     arguments: list[str]
 
 
+def split_compile_command(command: str) -> list[str]:
+    """Split quoted compiler arguments while preserving native Windows paths."""
+    if os.name != "nt":
+        return shlex.split(command)
+    lexer = shlex.shlex(command, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.escape = ""
+    return list(lexer)
+
+
 def _parse_command_tokens(entry: dict[str, Any]) -> list[str]:
     arguments = entry.get("arguments")
     if not isinstance(arguments, list):
         command = entry.get("command")
         arguments = (
-            shlex.split(command, posix=os.name != "nt")
+            split_compile_command(command)
             if isinstance(command, str) and command.strip()
             else []
         )
@@ -48,10 +59,12 @@ def load_compile_commands(path: Path) -> list[CompileCommand]:
         if not isinstance(entry, dict):
             continue
         file_value = entry.get("file")
-        if not isinstance(file_value, str) or not file_value.strip():
+        if not isinstance(file_value, str) or not file_value.strip() or "\0" in file_value:
             continue
         try:
             directory_value = entry.get("directory")
+            if isinstance(directory_value, str) and "\0" in directory_value:
+                continue
             directory = (
                 Path(directory_value)
                 if isinstance(directory_value, str) and directory_value.strip()

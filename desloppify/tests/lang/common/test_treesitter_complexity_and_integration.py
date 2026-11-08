@@ -488,6 +488,46 @@ try {
 
 
 class TestUnreachableCode:
+    def test_csharp_yield_return_resumes(self, tmp_path):
+        from desloppify.languages._framework.treesitter.analysis.smells import (
+            detect_unreachable_code,
+        )
+        from desloppify.languages._framework.treesitter.specs.compiled import CSHARP_SPEC
+
+        f = tmp_path / "Iterator.cs"
+        f.write_text("""class Iterator {
+    System.Collections.Generic.IEnumerable<int> Values() {
+        yield return 1;
+        foreach (var value in new[] { 2, 3 }) {
+            yield return value;
+            System.Console.WriteLine(value);
+        }
+        yield return 4;
+    }
+}
+""")
+
+        assert detect_unreachable_code([str(f)], CSHARP_SPEC) == []
+
+    def test_csharp_yield_break_terminates(self, tmp_path):
+        from desloppify.languages._framework.treesitter.analysis.smells import (
+            detect_unreachable_code,
+        )
+        from desloppify.languages._framework.treesitter.specs.compiled import CSHARP_SPEC
+
+        f = tmp_path / "Iterator.cs"
+        f.write_text("""class Iterator {
+    System.Collections.Generic.IEnumerable<int> Values() {
+        yield break;
+        yield return 1;
+    }
+}
+""")
+
+        assert detect_unreachable_code([str(f)], CSHARP_SPEC) == [
+            {"file": str(f), "line": 4, "after": "yield_statement"},
+        ]
+
     def test_detect_after_return(self, tmp_path):
         from desloppify.languages._framework.treesitter.analysis.smells import (
             detect_unreachable_code,
@@ -505,6 +545,99 @@ function foo() {
 
         entries = detect_unreachable_code([str(f)], JS_SPEC)
         assert len(entries) >= 1
+        assert entries[0]["after"] == "return_statement"
+
+    def test_csharp_local_function_after_return_is_reachable(self, tmp_path):
+        """A C# local function declared after `return` is hoisted, not dead code."""
+        from desloppify.languages._framework.treesitter.analysis.smells import (
+            detect_unreachable_code,
+        )
+        from desloppify.languages._framework.treesitter.specs.compiled import CSHARP_SPEC
+
+        code = """class Probe
+{
+    int Run()
+    {
+        Check(1, "start");
+        return 0;
+
+        void Check(int code, string operation)
+        {
+            if (code < 0) throw new System.InvalidOperationException(operation);
+        }
+    }
+}
+"""
+        f = tmp_path / "Probe.cs"
+        f.write_text(code)
+
+        assert detect_unreachable_code([str(f)], CSHARP_SPEC) == []
+
+    def test_csharp_consecutive_yields_are_reachable(self, tmp_path):
+        """Consecutive `yield return` statements in an iterator are all reachable."""
+        from desloppify.languages._framework.treesitter.analysis.smells import (
+            detect_unreachable_code,
+        )
+        from desloppify.languages._framework.treesitter.specs.compiled import CSHARP_SPEC
+
+        code = """class Probe
+{
+    System.Collections.Generic.IEnumerable<string> Candidates()
+    {
+        yield return "first";
+        yield return "second";
+        yield return "third";
+    }
+}
+"""
+        f = tmp_path / "Iter.cs"
+        f.write_text(code)
+
+        assert detect_unreachable_code([str(f)], CSHARP_SPEC) == []
+
+    def test_error_nodes_are_not_reported_as_unreachable(self, tmp_path):
+        """Where the parser lost sync the tree cannot describe real control flow."""
+        from desloppify.languages._framework.treesitter.analysis.smells import (
+            detect_unreachable_code,
+        )
+        from desloppify.languages._framework.treesitter.specs.compiled import CSHARP_SPEC
+
+        code = """class Probe
+{
+    int Run()
+    {
+        return 0;
+        ) unbalanced
+    }
+}
+"""
+        f = tmp_path / "Broken.cs"
+        f.write_text(code)
+
+        for entry in detect_unreachable_code([str(f)], CSHARP_SPEC):
+            assert entry["line"] != 6
+
+    def test_csharp_statement_after_return_is_still_flagged(self, tmp_path):
+        """The real defect must keep firing after the hoisting/yield fixes."""
+        from desloppify.languages._framework.treesitter.analysis.smells import (
+            detect_unreachable_code,
+        )
+        from desloppify.languages._framework.treesitter.specs.compiled import CSHARP_SPEC
+
+        code = """class Probe
+{
+    int Run()
+    {
+        return 0;
+        System.Console.WriteLine("unreachable");
+    }
+}
+"""
+        f = tmp_path / "Dead.cs"
+        f.write_text(code)
+
+        entries = detect_unreachable_code([str(f)], CSHARP_SPEC)
+        assert len(entries) == 1
         assert entries[0]["after"] == "return_statement"
 
     def test_no_unreachable(self, tmp_path):

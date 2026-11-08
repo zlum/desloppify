@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from desloppify.engine._plan.refresh_lifecycle import carry_forward_subjective_review
+from desloppify.engine._work_queue.core import QueueBuildOptions
+from desloppify.engine._work_queue.core import build_work_queue as _build_work_queue
 from desloppify.engine.planning.queue_policy import (
     build_backlog_queue,
     build_execution_queue,
 )
-from desloppify.engine._work_queue.core import QueueBuildOptions
-from desloppify.engine._work_queue.core import build_work_queue as _build_work_queue
 
 
 def build_work_queue(state, **kwargs):
@@ -380,8 +380,8 @@ def test_explicit_planned_issue_bypasses_standalone_threshold_filter():
     assert [item["id"] for item in queue["items"]] == ["facade::src/a.py"]
 
 
-def test_triaged_review_findings_stay_postflight_while_objective_work_remains():
-    """Completed triage should not mix review findings into execute."""
+def test_triaged_review_findings_hold_objective_work_in_backlog():
+    """Postflight review work must not leak queued objectives into execution."""
     from desloppify.engine._plan.schema import empty_plan
 
     state = _state(
@@ -398,7 +398,7 @@ def test_triaged_review_findings_stay_postflight_while_objective_work_remains():
     )
     plan = empty_plan()
     plan["plan_start_scores"] = {"strict": 80.0}
-    plan["queue_order"] = ["review::src/a.py::naming", "smells::src/a.py::x"]
+    plan["queue_order"] = ["review::src/a.py::naming"]
     plan["epic_triage_meta"] = {
         "triaged_ids": ["review::src/a.py::naming"],
         "last_completed_at": "2026-03-13T00:00:00+00:00",
@@ -409,12 +409,25 @@ def test_triaged_review_findings_stay_postflight_while_objective_work_remains():
         state,
         options=QueueBuildOptions(
             count=None,
-            include_subjective=False,
+            include_subjective=True,
             plan=plan,
         ),
     )
-    ids = [item["id"] for item in queue["items"]]
-    assert ids == ["smells::src/a.py::x"]
+    assert [item["id"] for item in queue["items"]] == [
+        "review::src/a.py::naming"
+    ]
+
+    backlog = build_backlog_queue(
+        state,
+        options=QueueBuildOptions(
+            count=None,
+            include_subjective=True,
+            plan=plan,
+        ),
+    )
+    assert [item["id"] for item in backlog["items"]] == [
+        "smells::src/a.py::x"
+    ]
 
 
 def test_postflight_assessment_precedes_review_findings():
@@ -528,6 +541,60 @@ def test_backlog_queue_excludes_execution_objective_items():
     assert "smells::src/a.py::planned" not in ids
     assert "smells::src/b.py::unplanned" in ids
     assert "workflow::run-scan" not in ids
+
+
+def test_policy_queues_honor_configured_subjective_threshold():
+    """All plan queue views use the configured strict target, not 100.0."""
+    from desloppify.engine._plan.schema import empty_plan
+
+    state = _state(
+        [],
+        dimension_scores={
+            "Init coupling": {
+                "score": 91.0,
+                "strict": 91.0,
+                "failing": 0,
+                "tier": 4,
+                "detectors": {
+                    "subjective_assessment": {
+                        "dimension_key": "initialization_coupling",
+                        "placeholder": False,
+                    },
+                },
+            },
+            "Dep health": {
+                "score": 94.0,
+                "strict": 94.0,
+                "failing": 0,
+                "tier": 4,
+                "detectors": {
+                    "subjective_assessment": {
+                        "dimension_key": "dependency_health",
+                        "placeholder": False,
+                    },
+                },
+            },
+        },
+    )
+    state["config"] = {"target_strict_score": 85}
+    state["subjective_assessments"] = {
+        "initialization_coupling": {"score": 91.0, "needs_review_refresh": True},
+        "dependency_health": {"score": 94.0, "needs_review_refresh": True},
+    }
+    plan = empty_plan()
+    plan["plan_start_scores"] = {"strict": 81.2}
+    plan["refresh_state"] = {
+        "lifecycle_phase": "plan",
+        "postflight_scan_completed_at_scan_count": 1,
+        "subjective_review_completed_at_scan_count": 1,
+    }
+    options = QueueBuildOptions(count=None, include_subjective=True, plan=plan)
+
+    execution = build_execution_queue(state, options=options)
+    backlog = build_backlog_queue(state, options=options)
+
+    assert execution["items"] == []
+    assert backlog["items"] == []
 
 
 def test_unplanned_objective_items_dont_block_postflight():

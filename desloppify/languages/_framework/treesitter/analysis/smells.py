@@ -141,6 +141,13 @@ _TERMINATOR_TYPES = frozenset({
     "raise_statement",
 })
 
+# Declarations that are hoisted over the surrounding statement sequence, so they
+# stay reachable even when they follow a terminator. C# local functions are the
+# common case: `return result; void Check(...) { ... }` is idiomatic, not dead code.
+_HOISTED_DECLARATION_TYPES = frozenset({
+    "local_function_statement",
+})
+
 # Node types whose children form a statement sequence.
 _SEQUENCE_NODE_TYPES = frozenset({
     "block", "statement_block", "compound_statement",
@@ -186,7 +193,12 @@ def detect_unreachable_code(
 
 
 def _check_sequence_for_unreachable(block_node, filepath: str, entries: list[dict]):
-    """Check a statement sequence for code after terminators."""
+    """Check a statement sequence for code after terminators.
+
+    ERROR nodes are skipped: where the parser lost sync the tree no longer
+    describes the real control flow, so anything after a terminator there is a
+    parse artifact rather than dead code.
+    """
     children = block_node.children
     saw_terminator = False
     terminator_type = ""
@@ -203,7 +215,7 @@ def _check_sequence_for_unreachable(block_node, filepath: str, entries: list[dic
                 "else", "elif", "catch_clause", "except_clause",
                 "finally_clause", "case_clause", "default_clause",
                 "rescue",
-            ):
+            ) and child.type not in _HOISTED_DECLARATION_TYPES and child.type != "ERROR":
                 entries.append({
                     "file": filepath,
                     "line": child.start_point[0] + 1,
@@ -220,6 +232,10 @@ def _check_sequence_for_unreachable(block_node, filepath: str, entries: list[dic
 
 def _terminator_type(node) -> str | None:
     """Return the terminating statement type, including wrapped Dart throws."""
+    if node.type == "yield_statement" and any(
+        child.type == "break" for child in node.children
+    ):
+        return node.type
     if node.type in _TERMINATOR_TYPES:
         return node.type
 

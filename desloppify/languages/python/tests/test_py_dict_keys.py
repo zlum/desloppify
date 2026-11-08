@@ -2,11 +2,18 @@
 
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+
+from desloppify.languages.python import phases_quality as phases_quality_mod
 from desloppify.languages.python.detectors import dict_keys as dict_keys_mod
 from desloppify.languages.python.detectors.dict_keys import (
     detect_dict_key_flow,
     detect_schema_drift,
+)
+from desloppify.languages.python.detectors.dict_keys.schema import (
+    detect_schema_drift_with_semantic_corrections,
 )
 
 # ── Helpers ────────────────────────────────────────────────
@@ -94,6 +101,166 @@ class TestPhantomRead:
         entries, _ = detect_dict_key_flow(path)
         assert "phantom_read" not in _kinds(entries)
 
+    @pytest.mark.parametrize("constructor", ("dict(source)", "dict(**source)"))
+    def test_copy_constructor_does_not_assume_an_empty_local_dict(
+        self, tmp_path, constructor
+    ):
+        path = _write_py(
+            tmp_path,
+            f"""\
+            def build(source):
+                copied = {constructor}
+                value = copied["expected"]
+                return value
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        assert "phantom_read" not in _kinds(entries)
+
+    @pytest.mark.parametrize("constructor", ("dict()", "dict(expected=1)"))
+    def test_empty_and_keyword_dict_constructors_still_track_reads(
+        self, tmp_path, constructor
+    ):
+        path = _write_py(
+            tmp_path,
+            f"""\
+            def build():
+                created = {constructor}
+                value = created["missing"]
+                return value
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        phantom = _find_kind(entries, "phantom_read")
+        assert any(entry["key"] == "missing" for entry in phantom)
+
+
+    def test_open_positional_dict_copy_suppresses_phantom_reads(self, tmp_path):
+        path = _write_py(
+            tmp_path,
+            """\
+            def read_external(source):
+                payload = dict(source)
+                return payload.get("message"), payload.pop("error_code", None)
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        assert "phantom_read" not in _kinds(entries)
+
+    def test_open_unpack_copies_suppress_phantom_reads(self, tmp_path):
+        path = _write_py(
+            tmp_path,
+            """\
+            def read_external(source):
+                call_copy = dict(**source)
+                literal_copy = {**source}
+                return call_copy.get("message"), literal_copy.get("error")
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        assert "phantom_read" not in _kinds(entries)
+
+    def test_open_keyset_suppresses_derived_near_miss(self, tmp_path):
+        path = _write_py(
+            tmp_path,
+            """\
+            def read_external(source):
+                payload = dict(source, message="fallback")
+                return payload.get("messag")
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        assert not {"phantom_read", "near_miss"} & _kinds(entries)
+
+    def test_closed_dict_constructors_still_detect_typos(self, tmp_path):
+        path = _write_py(
+            tmp_path,
+            """\
+            def read_closed():
+                literal = {"message": "one"}
+                keyword = dict(message="two")
+                return literal.get("messag"), keyword.get("messag")
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        assert len(_find_kind(entries, "phantom_read")) == 2
+        assert len(_find_kind(entries, "near_miss")) == 2
+
+    def test_closed_keyset_survives_literal_constructor_alias_and_copy(self, tmp_path):
+        path = _write_py(
+            tmp_path,
+            """\
+            def read_closed():
+                original = {"message": "one"}
+                alias = original
+                constructor = dict(alias)
+                method_copy = alias.copy()
+                unpack_copy = dict(**{"message": "two"})
+                positional_literal = dict({"message": "three"})
+                return (
+                    alias.get("messag"),
+                    constructor.get("messag"),
+                    method_copy.get("messag"),
+                    unpack_copy.get("messag"),
+                    positional_literal.get("messag"),
+                )
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        assert len(_find_kind(entries, "phantom_read")) == 5
+        assert len(_find_kind(entries, "near_miss")) == 5
+
+    def test_open_keyset_survives_alias_and_tracked_copies(self, tmp_path):
+        path = _write_py(
+            tmp_path,
+            """\
+            def read_external(source):
+                original = dict(source)
+                alias = original
+                constructor = dict(alias)
+                method_copy = alias.copy()
+                return constructor.get("message"), method_copy.get("error")
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        assert "phantom_read" not in _kinds(entries)
+
+    def test_update_propagates_open_and_closed_keysets(self, tmp_path):
+        path = _write_py(
+            tmp_path,
+            """\
+            def read_external(source):
+                open_payload = {}
+                open_payload.update(source)
+                closed_payload = {}
+                closed_payload.update({"message": "fallback"})
+                return open_payload.get("message"), closed_payload.get("messag")
+        """,
+        )
+
+        entries, _ = detect_dict_key_flow(path)
+
+        phantom = _find_kind(entries, "phantom_read")
+        near_miss = _find_kind(entries, "near_miss")
+        assert [issue["variable"] for issue in phantom] == ["closed_payload"]
+        assert [issue["variable"] for issue in near_miss] == ["closed_payload"]
+
 
 # ── Dead writes (written key never read) ──────────────────
 
@@ -165,6 +332,23 @@ class TestDeadWrite:
                 child["c"] = 3
                 meta["child"] = child
                 return meta
+        """,
+        )
+        entries, _ = detect_dict_key_flow(path)
+        assert "dead_write" not in _kinds(entries)
+
+    def test_no_dead_write_when_dict_literal_assigned_to_attribute(self, tmp_path):
+        """A durable attribute assignment is an escape boundary, not local dead code."""
+        path = _write_py(
+            tmp_path,
+            """\
+            def record(receipt):
+                receipt.result_payload = {
+                    "data": 1,
+                    "error_code": None,
+                    "user_message": None,
+                    "extra": None,
+                }
         """,
         )
         entries, _ = detect_dict_key_flow(path)
@@ -362,6 +546,153 @@ class TestSchemaDrift:
         entries, _ = detect_schema_drift(path)
         assert len(entries) == 0
 
+    def test_does_not_compare_validation_schema_with_returned_payloads(self, tmp_path):
+        """Constructor schemas and runtime snapshots can intentionally differ."""
+        code = textwrap.dedent("""\
+            ValidationSchema(
+                {
+                    "event_id": 1,
+                    "requested_frequencies": [],
+                    "analyzer_id": 9,
+                    "frequency_range": [],
+                    "existing_assignments": [],
+                    "options": {},
+                }
+            )
+
+            def legacy_snapshot():
+                return {
+                    "event_id": 1,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "existing_assignments": [],
+                    "options": {},
+                }
+
+            def canonical_snapshot():
+                return {
+                    "event_id": 1,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "existing_assignments": [],
+                    "options": {},
+                }
+
+            def normalized_snapshot():
+                return {
+                    "event_id": 1,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "existing_assignments": [],
+                    "options": {},
+                }
+        """)
+        path = _write_py(tmp_path, code)
+
+        entries, count, corrections = (
+            detect_schema_drift_with_semantic_corrections(path)
+        )
+
+        assert count == 4
+        assert entries == []
+        assert len(corrections) == 1
+        assert corrections[0]["key"] == "analyzer_id"
+        assert (
+            corrections[0]["comparison_scope"]
+            == "schema-constructor:ValidationSchema"
+        )
+
+    def test_detects_drift_within_validation_schema_constructor(self, tmp_path):
+        code = textwrap.dedent("""\
+            ValidationSchema(
+                {
+                    "event_id": 1,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                }
+            )
+            ValidationSchema(
+                {
+                    "event_id": 2,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                }
+            )
+            ValidationSchema(
+                {
+                    "event_id": 3,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                }
+            )
+            ValidationSchema(
+                {
+                    "event_id": 4,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                    "analyzer_id": 9,
+                }
+            )
+        """)
+        path = _write_py(tmp_path, code)
+
+        entries, count, corrections = (
+            detect_schema_drift_with_semantic_corrections(path)
+        )
+
+        assert count == 4
+        assert any(entry["key"] == "analyzer_id" for entry in entries)
+        assert corrections == []
+
+    def test_detects_drift_within_returned_payloads(self, tmp_path):
+        code = textwrap.dedent("""\
+            def first_snapshot():
+                return {
+                    "event_id": 1,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                }
+
+            def second_snapshot():
+                return {
+                    "event_id": 2,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                }
+
+            def third_snapshot():
+                return {
+                    "event_id": 3,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                }
+
+            def fourth_snapshot():
+                return {
+                    "event_id": 4,
+                    "requested_frequencies": [],
+                    "frequency_range": [],
+                    "options": {},
+                    "analyzer_id": 9,
+                }
+        """)
+        path = _write_py(tmp_path, code)
+
+        entries, count, corrections = (
+            detect_schema_drift_with_semantic_corrections(path)
+        )
+
+        assert count == 4
+        assert any(entry["key"] == "analyzer_id" for entry in entries)
+        assert corrections == []
+
     def test_too_few_literals_no_issues(self, tmp_path):
         code = textwrap.dedent("""\
             d1 = {"name": "a", "age": 1, "city": "x"}
@@ -371,6 +702,39 @@ class TestSchemaDrift:
         entries, count = detect_schema_drift(path)
         # Fewer than 3 literals -> no issues
         assert len(entries) == 0
+
+    def test_phase_records_proven_semantic_correction(self, monkeypatch, tmp_path):
+        correction_entry = {
+            "file": "schemas.py",
+            "line": 12,
+            "key": "analyzer_id",
+            "tier": 3,
+            "confidence": "medium",
+            "summary": "Legacy-only schema drift",
+            "comparison_scope": "schema-constructor:ValidationSchema",
+            "rule": "python.dict_keys.schema_drift.schema_constructor_scope.v1",
+        }
+        monkeypatch.setattr(
+            phases_quality_mod.dict_keys_detector_mod,
+            "detect_dict_key_flow",
+            lambda _path: ([], 1),
+        )
+        monkeypatch.setattr(
+            phases_quality_mod,
+            "detect_schema_drift_with_semantic_corrections",
+            lambda _path: ([], 1, [correction_entry]),
+        )
+        lang = SimpleNamespace(zone_map=None, semantic_corrections={})
+
+        entries, potentials = phases_quality_mod.phase_dict_keys(tmp_path, lang)
+
+        assert entries == []
+        assert potentials == {"dict_keys": 1}
+        correction_id, correction = next(iter(lang.semantic_corrections.items()))
+        assert correction_id.endswith("::schema_drift::analyzer_id::12")
+        assert correction["kind"] == "schema_drift"
+        assert correction["rule"] == correction_entry["rule"]
+        assert "schema-constructor:ValidationSchema" in correction["evidence"]
 
 
 # ── Output structure ──────────────────────────────────────

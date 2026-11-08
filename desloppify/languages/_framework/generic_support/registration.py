@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from desloppify.base.registry import DetectorMeta, register_detector
@@ -42,6 +44,10 @@ class GenericLangOptions:
     external_test_dirs: list[str] | None = None
     test_file_extensions: list[str] | None = None
     custom_phases: list[DetectorPhase] | None = None
+    # Whole-graph builder (path, files) -> dep graph, for languages whose
+    # references cannot be resolved one import at a time (e.g. Kotlin packages).
+    # Takes precedence over the tree-sitter import query when set.
+    dep_graph_builder: Callable[[Path, list[str]], dict[str, dict[str, Any]]] | None = None
 
 
 def _register_generic_tool_specs(tool_specs: list[dict[str, Any]]) -> dict[str, FixerConfig]:
@@ -76,12 +82,15 @@ def _resolve_generic_extractors(
     *,
     path_extensions: list[str],
     opts: GenericLangOptions,
+    frameworks: bool = False,
 ) -> tuple[Any, Any, Any, bool, Any]:
     file_finder = make_file_finder(path_extensions, opts.exclude)
     extract_fn = noop_extract_functions
     dep_graph_fn = empty_dep_graph
     ts_spec = opts.treesitter_spec
     has_treesitter = False
+    if opts.dep_graph_builder is not None:
+        dep_graph_fn = _bind_dep_graph_builder(opts.dep_graph_builder, file_finder)
     if ts_spec is None:
         return file_finder, extract_fn, dep_graph_fn, has_treesitter, ts_spec
 
@@ -90,14 +99,47 @@ def _resolve_generic_extractors(
     if not is_available():
         return file_finder, extract_fn, dep_graph_fn, has_treesitter, ts_spec
 
+    from desloppify.languages._framework.frameworks.registry import (
+        framework_source_extensions,
+    )
     from desloppify.languages._framework.treesitter.analysis.extractors import make_ts_extractor
     from desloppify.languages._framework.treesitter.imports.graph import make_ts_dep_builder
 
     has_treesitter = True
     extract_fn = make_ts_extractor(ts_spec, file_finder)
-    if ts_spec.import_query and ts_spec.resolve_import:
-        dep_graph_fn = make_ts_dep_builder(ts_spec, file_finder)
+    if dep_graph_fn is empty_dep_graph and ts_spec.import_query and ts_spec.resolve_import:
+        # Pull the framework source-extension list from the FrameworkSpec
+        # registry — adding a new framework (e.g. Qwik, Solid, Marko) is one
+        # spec file with ``source_extensions=(...)`` and zero edits here.
+        framework_extensions = (
+            framework_source_extensions(ecosystem="node") if frameworks else None
+        )
+        # Build a framework-scoped file finder that respects the same
+        # ``opts.exclude`` as the host language finder, so framework files in
+        # user-excluded directories (e.g. ``examples/``, ``e2e/``) don't
+        # contribute spurious importer edges.
+        framework_file_finder = (
+            make_file_finder(list(framework_extensions), opts.exclude)
+            if framework_extensions
+            else None
+        )
+        dep_graph_fn = make_ts_dep_builder(
+            ts_spec,
+            file_finder,
+            framework_extensions=framework_extensions,
+            framework_file_finder=framework_file_finder,
+        )
     return file_finder, extract_fn, dep_graph_fn, has_treesitter, ts_spec
+
+
+def _bind_dep_graph_builder(
+    builder: Callable[[Path, list[str]], dict[str, dict[str, Any]]],
+    file_finder: Callable[[Path], list[str]],
+) -> Callable[[Path], dict[str, dict[str, Any]]]:
+    def build(path: Path) -> dict[str, dict[str, Any]]:
+        return builder(path, file_finder(path))
+
+    return build
 
 
 def _build_generic_phases(

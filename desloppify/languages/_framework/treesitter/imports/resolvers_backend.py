@@ -62,6 +62,7 @@ def _jvm_candidate_roots(scan_path: str) -> list[str]:
     roots = list(discover_jvm_source_roots(scan_path))
     roots += [
         os.path.join(scan_path, "src", "main", "java"),
+        os.path.join(scan_path, "src", "main", "kotlin"),
         os.path.join(scan_path, "src"),
         os.path.join(scan_path, "app", "src", "main", "java"),
         os.path.join(scan_path, "app", "src", "main", "kotlin"),

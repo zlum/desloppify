@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from desloppify.base.discovery.paths import get_project_root
+from desloppify.languages.python.source_roots import declared_source_roots
 
 
 def resolve_python_from_import(
@@ -49,7 +50,7 @@ def resolve_python_from_import(
 
     results = []
     target = resolve_python_import(module_path, source_file, scan_root_path)
-    if target and import_names:
+    if import_names:
         names = [name.strip().split()[0] for name in import_names.split(",")]
         for name in names:
             cleaned = name.strip("()")
@@ -85,12 +86,48 @@ def resolve_python_import(
     resolved = resolve_absolute_import(module_path, scan_root_path)
     if resolved:
         return resolved
+    resolved = _resolve_package_qualified_import(module_path, source_dir, scan_root_path)
+    if resolved:
+        return resolved
     # Executing a flat script adds its directory to sys.path. The project-root
     # lookup alone misses its sibling imports when scanning a larger project.
     # Keep this a fallback, and do not invent implicit relative imports inside
     # regular packages, where Python requires an explicit leading dot.
     if not (source_dir / "__init__.py").is_file():
         return try_resolve_path(source_dir.joinpath(*module_path.split(".")))
+    return None
+
+
+def _resolve_package_qualified_import(
+    module_path: str, source_dir: Path, scan_root: Path
+) -> str | None:
+    """Resolve a package's own qualified name when scanning its enclosing tree.
+
+    Nested source roots need not coincide with the scan root. Regular and
+    namespace packages can use their own qualified name. Consider only named
+    ancestors inside the active roots, without guessing unrelated siblings.
+    """
+    parts = module_path.split(".")
+    candidates: set[str] = set()
+    package = source_dir.resolve()
+    roots = [
+        root.resolve()
+        for root in (scan_root, get_project_root())
+        if package.is_relative_to(root.resolve())
+    ]
+    if not roots:
+        return None
+    boundary = min(roots, key=lambda root: len(root.parts))
+    while True:
+        if package.name == parts[0]:
+            resolved = try_resolve_path(package.parent.joinpath(*parts))
+            if resolved:
+                candidates.add(resolved)
+        if package == boundary:
+            break
+        package = package.parent
+    if len(candidates) == 1:
+        return next(iter(candidates))
     return None
 
 
@@ -144,7 +181,10 @@ def resolve_absolute_import(module_path: str, scan_root: Path) -> str | None:
     having no importers.
     """
     parts = module_path.split(".")
-    for root in _import_search_roots(scan_root):
+    roots = _import_search_roots(scan_root)
+    project_root = get_project_root()
+    roots.extend(project_root / root for root in declared_source_roots(str(project_root)))
+    for root in roots:
         target_base = root
         for part in parts:
             target_base = target_base / part

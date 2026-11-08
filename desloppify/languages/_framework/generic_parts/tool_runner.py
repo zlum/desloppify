@@ -49,7 +49,7 @@ def resolve_command_argv(cmd: str) -> list[str]:
     except ValueError:
         return _shell_argv(cmd)
     if os.name == "nt":
-        argv = [arg[1:-1] if len(arg) >= 2 and arg[0] == arg[-1] == '"' else arg for arg in argv]
+        argv = [arg[1:-1] if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in "\"'" else arg for arg in argv]
     return argv if argv else _shell_argv(cmd)
 
 
@@ -77,6 +77,12 @@ def run_tool_result(
             cwd=str(path),
             capture_output=True,
             text=True,
+            # Linters emit UTF-8 regardless of platform. Without an explicit
+            # encoding, text mode decodes with the locale codec, which raises
+            # UnicodeDecodeError on a non-ASCII byte (cp1252 on Windows) and
+            # kills the reader thread mid-scan.
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
         )
     except FileNotFoundError as exc:
