@@ -1,17 +1,11 @@
 """Kotlin language plugin — ktlint, package-aware import graph."""
 
-from desloppify.engine.policy.zones import Zone, ZoneRule
-from desloppify.languages._framework.generic_support.core import generic_lang, generic_zone_rules
+from desloppify.languages._framework.generic_support.core import generic_lang
 from desloppify.languages._framework.treesitter import KOTLIN_SPEC
 from desloppify.languages.kotlin.fixers import KTLINT_COMMAND, make_ktlint_fixer
 from desloppify.languages.kotlin.deps import build_kotlin_dep_graph
 
-KOTLIN_ZONE_RULES = [
-    # Gradle Kotlin DSL scripts configure the build; they are not app code.
-    ZoneRule(Zone.CONFIG, [".gradle.kts"]),
-    # Android instrumented tests (src/androidTest) next to JVM tests (src/test).
-    ZoneRule(Zone.TEST, ["/androidTest/", "/testFixtures/"]),
-] + generic_zone_rules([".kt", ".kts"])
+from desloppify.languages.kotlin._zones import KOTLIN_ZONE_RULES
 
 _config = generic_lang(
     name="kotlin",
