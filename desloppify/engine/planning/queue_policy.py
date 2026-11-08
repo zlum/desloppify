@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from desloppify.base.config import DEFAULT_TARGET_STRICT_SCORE
 from desloppify.engine._state.schema import StateModel
-from desloppify.engine._work_queue.context import QueueContext, queue_context
+from desloppify.engine._work_queue.context import queue_context
 from desloppify.engine._work_queue.core import (
     QueueBuildOptions,
     QueueVisibility,
@@ -14,7 +14,6 @@ from desloppify.engine._work_queue.core import (
     _build_work_queue_with_visibility,
     build_work_queue,
 )
-from desloppify.engine._work_queue.inputs import resolve_queue_inputs
 
 
 def _subjective_threshold(state: StateModel, *, default: float = DEFAULT_TARGET_STRICT_SCORE) -> float:
@@ -35,19 +34,25 @@ def _queue_plan_from_options(options: QueueBuildOptions) -> dict | None:
     return options.plan
 
 
-def _queue_context_from_options(state: StateModel, options: QueueBuildOptions) -> QueueContext:
-    """Keep one target authoritative without discarding explicit legacy options."""
-    if options.context is not None:
-        return options.context
-    threshold_options = options
-    if options.subjective_threshold == QueueBuildOptions().subjective_threshold:
-        threshold_options = replace(options, subjective_threshold=_subjective_threshold(state))
-    _, _, _, threshold = resolve_queue_inputs(threshold_options, state)
-    return queue_context(
+def _resolved_queue_options(
+    state: StateModel,
+    options: QueueBuildOptions | None,
+) -> QueueBuildOptions:
+    """Use the resolved target unless the caller explicitly overrides it."""
+    opts = options or QueueBuildOptions()
+    threshold = opts.subjective_threshold
+    if threshold == QueueBuildOptions().subjective_threshold:
+        threshold = (
+            opts.context.target_strict
+            if opts.context is not None
+            else _subjective_threshold(state)
+        )
+    ctx = opts.context or queue_context(
         state,
-        plan=_queue_plan_from_options(options),
+        plan=_queue_plan_from_options(opts),
         target_strict=threshold,
     )
+    return replace(opts, context=ctx, subjective_threshold=threshold)
 
 
 def build_open_plan_queue(
@@ -75,13 +80,9 @@ def build_execution_queue(
     options: QueueBuildOptions | None = None,
 ) -> WorkQueueResult:
     """Build the execution queue that follows the living plan when present."""
-    options = options or QueueBuildOptions()
-    ctx = _queue_context_from_options(state, options)
-    if options.subjective_threshold == QueueBuildOptions().subjective_threshold:
-        options = replace(options, subjective_threshold=ctx.target_strict)
     return _build_work_queue_with_visibility(
         state,
-        options=replace(options, context=ctx),
+        options=_resolved_queue_options(state, options),
         visibility=QueueVisibility.EXECUTION,
     )
 
@@ -92,11 +93,9 @@ def build_backlog_queue(
     options: QueueBuildOptions | None = None,
 ) -> WorkQueueResult:
     """Build the broader backlog, excluding work already tracked in the plan."""
-    options = options or QueueBuildOptions()
-    ctx = _queue_context_from_options(state, options)
     return _build_work_queue_with_visibility(
         state,
-        options=replace(options, context=ctx),
+        options=_resolved_queue_options(state, options),
         visibility=QueueVisibility.BACKLOG,
     )
 
