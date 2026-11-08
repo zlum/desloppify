@@ -1060,3 +1060,13 @@ class TestCollectExcludeDirs:
             result = collect_exclude_dirs(tmp_path)
         node_entries = [p for p in result if p.endswith("/node_modules")]
         assert len(node_entries) == 1
+
+
+    def test_relative_scan_root_returns_absolute_exclusions(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch(
+            "desloppify.base.discovery.source.get_exclusions", return_value=(".cache",)
+        ):
+            result = collect_exclude_dirs(Path("."))
+        assert str(tmp_path / ".cache") in result
+        assert all(Path(path).is_absolute() for path in result)
