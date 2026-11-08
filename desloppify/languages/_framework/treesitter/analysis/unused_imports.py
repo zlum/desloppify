@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from .. import PARSE_INIT_ERRORS
 from ..imports.cache import get_or_parse_tree
 from .extractors import _get_parser, _make_query, _node_text, _run_query, _unwrap_node
+from .kotlin_imports import collect_implicit_references
 
 if TYPE_CHECKING:
     from desloppify.languages._framework.treesitter import TreeSitterLangSpec
@@ -93,6 +94,11 @@ def detect_unused_imports(
         if not matches:
             continue
 
+        implicit_names = (
+            collect_implicit_references(tree.root_node)
+            if spec.grammar == "kotlin"
+            else set()
+        )
         for _pattern_idx, captures in matches:
             import_node = _unwrap_node(captures.get("import"))
             path_node = _unwrap_node(captures.get("path"))
@@ -113,7 +119,11 @@ def detect_unused_imports(
             import_end = import_node.end_byte
 
             # Build text without the import statement itself.
-            rest = source_text[:import_start] + source_text[import_end:]
+            rest = (source[:import_start] + source[import_end:]).decode("utf-8", errors="replace")
+            if spec.grammar == "kotlin":
+                from desloppify.languages.kotlin.deps import strip_comments_and_strings
+
+                rest = strip_comments_and_strings(rest)
 
             # Handle grouped/braced imports (e.g. Rust `use crate::module::{A, B}`).
             grouped_names = _extract_grouped_import_names(raw_path)
@@ -137,20 +147,22 @@ def detect_unused_imports(
             # Extract the imported name from the path.
             # Backtick-escaped names (Kotlin ``Mockito.`when` ``) are used escaped.
             name = (alias_name or _extract_import_name(raw_path)).strip("`")
-            if not name:
+            if not name or name in implicit_names:
                 continue
 
             # Some languages invoke imported functions implicitly by
             # convention (e.g. Kotlin property delegation via getValue /
             # setValue), so the name never appears in the file text even
             # though the import is live.
-            if name in getattr(spec, "implicit_import_names", frozenset()):
+            if spec.grammar != "kotlin" and name in getattr(spec, "implicit_import_names", frozenset()):
                 continue
 
             # Check if the name appears in the rest of the file.
             if re.search(r'\b' + re.escape(name) + r'\b', rest):
                 continue
             implicit = implicit_uses.get(name)
+            if spec.grammar == "kotlin" and name in {"getValue", "setValue", "provideDelegate", "get", "set", "invoke", "assign"}:
+                implicit = None
             if implicit is None or not implicit.search(rest):
                 entries.append({
                     "file": filepath,
