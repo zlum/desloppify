@@ -167,6 +167,7 @@ def resolve_import_spec(
 ) -> str | None:
     """Resolve a TypeScript import specifier to a production file path."""
     project_root = get_project_root()
+    production_by_path = {name.replace("\\", "/"): name for name in production_files}
     importer = Path(test_path)
     if not importer.is_absolute():
         importer = project_root / importer
@@ -192,15 +193,15 @@ def resolve_import_spec(
         if candidate in production_files:
             return candidate
         rel_candidate = _relative_if_under_root(candidate)
-        if rel_candidate in production_files:
-            return rel_candidate
+        if rel_candidate in production_by_path:
+            return production_by_path[rel_candidate]
         try:
             resolved = str(Path(str(base) + ext).resolve())
             if resolved in production_files:
                 return resolved
             rel_resolved = _relative_if_under_root(resolved)
-            if rel_resolved in production_files:
-                return rel_resolved
+            if rel_resolved in production_by_path:
+                return production_by_path[rel_resolved]
         except OSError as exc:
             log_best_effort_failure(
                 logger,

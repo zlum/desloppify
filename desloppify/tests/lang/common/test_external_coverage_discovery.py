@@ -96,5 +96,5 @@ def test_coverage_summary_labels_weighted_potential_not_file_count(
     assert potential == {"test_coverage": 10}
     captured = capsys.readouterr()
     output = captured.err + captured.out
-    assert "10 weighted coverage units" in output
+    assert "10 weighted checks" in output
     assert "10 production files" not in output

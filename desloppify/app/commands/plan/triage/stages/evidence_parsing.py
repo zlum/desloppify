@@ -95,9 +95,12 @@ def _normalise_verdict(raw: str) -> str | None:
 def _build_short_map(valid_ids: set[str]) -> dict[str, str]:
     """Build collision-safe short-id → full-id map from valid issue IDs."""
     short_map: dict[str, str] = {}
+    ambiguous: set[str] = set()
     for fid in valid_ids:
         short = fid.rsplit("::", 1)[-1].lower()
-        if not short:
+        if not short or short in ambiguous:
+            continue
+        if "::" not in fid and not re.fullmatch(r"[0-9a-f]{6,}", short):
             continue
         existing = short_map.get(short)
         if existing is None:
@@ -105,6 +108,7 @@ def _build_short_map(valid_ids: set[str]) -> dict[str, str]:
             continue
         if existing != fid:
             short_map.pop(short, None)
+            ambiguous.add(short)
     return short_map
 
 

@@ -106,7 +106,6 @@ def detect_unused_imports(
         if cached is None:
             continue
         source, tree = cached
-        source_text = source.decode("utf-8", errors="replace")
 
         matches = _run_query(query, tree.root_node)
         if not matches:
@@ -114,7 +113,7 @@ def detect_unused_imports(
 
         implicit_names = (
             collect_implicit_references(tree.root_node)
-            if spec.grammar == "kotlin"
+            if spec.grammar == "kotlin" and hasattr(tree.root_node, "named_children")
             else set()
         )
         for _pattern_idx, captures in matches:
@@ -197,7 +196,7 @@ def detect_unused_imports(
             # convention (e.g. Kotlin property delegation via getValue /
             # setValue), so the name never appears in the file text even
             # though the import is live.
-            if spec.grammar != "kotlin" and name in getattr(spec, "implicit_import_names", frozenset()):
+            if (spec.grammar != "kotlin" or not hasattr(tree.root_node, "named_children")) and name in getattr(spec, "implicit_import_names", frozenset()):
                 continue
 
             # Bash `source`/`.` loads a library whose *defined* functions and

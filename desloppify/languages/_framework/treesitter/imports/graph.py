@@ -103,7 +103,7 @@ def ts_build_dep_graph(
     graph: dict[str, dict[str, Any]] = {}
 
     # Initialize all files in the graph.
-    for f in absolute_file_list:
+    for f in file_list:
         graph[f] = {"imports": set(), "importers": set()}
 
     for filepath in file_list:
