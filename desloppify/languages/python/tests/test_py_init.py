@@ -1,5 +1,6 @@
 """Tests for desloppify.languages.python — PythonConfig and configuration data."""
 
+import importlib.util
 import shutil
 
 from desloppify.engine.policy.zones import Zone
@@ -79,6 +80,14 @@ class TestPythonConfig:
 
     def test_scan_coverage_prerequisites_when_bandit_missing(self, monkeypatch):
         monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+        real_find_spec = importlib.util.find_spec
+        monkeypatch.setattr(
+            importlib.util,
+            "find_spec",
+            lambda name, *args, **kwargs: None
+            if name == "bandit"
+            else real_find_spec(name, *args, **kwargs),
+        )
         config = PythonConfig()
         checks = config.scan_coverage_prerequisites()
         assert checks
