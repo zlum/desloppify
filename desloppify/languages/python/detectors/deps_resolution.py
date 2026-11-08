@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from desloppify.base.discovery.paths import get_project_root
+from desloppify.languages.python.source_roots import declared_source_roots
 
 
 def resolve_python_from_import(
@@ -180,7 +181,10 @@ def resolve_absolute_import(module_path: str, scan_root: Path) -> str | None:
     having no importers.
     """
     parts = module_path.split(".")
-    for root in _import_search_roots(scan_root):
+    roots = _import_search_roots(scan_root)
+    project_root = get_project_root()
+    roots.extend(project_root / root for root in declared_source_roots(str(project_root)))
+    for root in roots:
         target_base = root
         for part in parts:
             target_base = target_base / part

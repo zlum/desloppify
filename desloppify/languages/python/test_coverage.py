@@ -93,6 +93,27 @@ def _module_path_candidates(module_path: str) -> tuple[str, str]:
         f"{module_path}.py",
         f"{module_path}/__init__.py",
     )
+def _layout_prefixes() -> tuple[str, ...]:
+    """Source-layout prefixes: ``src/`` plus any pyproject-declared roots.
+
+    Projects that run with ``PYTHONPATH=<dir>`` (declared via
+    ``[tool.pytest.ini_options] pythonpath``, ``[tool.mypy] mypy_path`` or
+    ``[tool.desloppify] python_source_roots``) keep production files under
+    ``<dir>/`` while tests import them root-relatively; without these
+    prefixes every import-based test->source mapping misses.
+    """
+    prefixes = list(_SRC_PREFIXES)
+    try:
+        from desloppify.base.discovery.paths import get_project_root
+        from desloppify.languages.python.source_roots import declared_source_roots
+
+        for root in declared_source_roots(str(get_project_root())):
+            prefix = f"{root}/"
+            if prefix not in prefixes:
+                prefixes.append(prefix)
+    except Exception:  # pragma: no cover - project root unset in bare unit use
+        pass
+    return tuple(prefixes)
 
 
 def has_testable_logic(filepath: str, content: str) -> bool:
@@ -115,7 +136,7 @@ def resolve_import_spec(
         if matched:
             return matched
         # Try src/-prefixed variants for src-layout projects
-        for prefix in _SRC_PREFIXES:
+        for prefix in _layout_prefixes():
             prefixed = f"{prefix}{candidate}"
             matched = _match_production_candidate(prefixed, production_files)
             if matched:
