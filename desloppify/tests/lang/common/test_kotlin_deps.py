@@ -119,6 +119,18 @@ def test_graph_links_imports_same_package_and_wildcards(tmp_path: Path) -> None:
     assert graph[model]["importer_count"] == 4
 
 
+def test_explicit_import_binding_takes_precedence_over_inferred_names(tmp_path: Path) -> None:
+    remote = _write(tmp_path, "remote/Types.kt", "package remote\nclass External\n")
+    local = _write(tmp_path, "ui/Row.kt", "package ui\nclass Row\n")
+    wildcard = _write(tmp_path, "other/Row.kt", "package other\nclass Row\n")
+    user = _write(
+        tmp_path, "ui/Screen.kt",
+        "package ui\nimport remote.External as Row\nimport other.*\nfun screen(value: Row) = value\n",
+    )
+    graph = build_kotlin_dep_graph(tmp_path, [remote, local, wildcard, user])
+    assert _imports(graph, user) == {remote}
+
+
 def test_names_in_comments_and_strings_do_not_link(tmp_path: Path) -> None:
     target = _write(tmp_path, "src/a/Target.kt", "package a\n\nclass Target\n")
     user = _write(

@@ -198,7 +198,7 @@ def top_level_names(code: str) -> set[str]:
 
 
 class _KotlinFile:
-    __slots__ = ("path", "package", "imports", "star_imports", "names", "identifiers")
+    __slots__ = ("path", "package", "imports", "import_bindings", "star_imports", "names", "identifiers")
 
     def __init__(self, path: str, text: str) -> None:
         code = strip_comments_and_strings(text)
@@ -206,13 +206,18 @@ class _KotlinFile:
         package = _PACKAGE_RE.search(code)
         self.package = _unquote(package.group(1)) if package else ""
         self.imports: list[str] = []
+        self.import_bindings: set[str] = set()
         self.star_imports: list[str] = []
         for match in _IMPORT_RE.finditer(code):
             target = _unquote(match.group(1))
             (self.star_imports if match.group(2) else self.imports).append(target)
+            if not match.group(2):
+                self.import_bindings.add(match.group(3) or target.rsplit(".", 1)[-1])
         body = _IMPORT_RE.sub("", _PACKAGE_RE.sub("", code))
         self.names = top_level_names(body)
-        self.identifiers = set(_IDENTIFIER_RE.findall(body))
+        # An explicit import (including an alias) wins over inferred package
+        # and wildcard matches with the same visible name.
+        self.identifiers = set(_IDENTIFIER_RE.findall(body)) - self.import_bindings
 
 
 class _SymbolIndex:

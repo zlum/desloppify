@@ -7,6 +7,7 @@ import json
 import shutil
 import stat
 import subprocess
+import sys
 
 import pytest
 
@@ -151,6 +152,28 @@ def test_concurrent_source_change_is_preserved(kotlin_project, monkeypatch):
     assert result.entries == []
     assert result.skip_reasons == {"file_changed": 1}
     assert source.read_text() == edited
+
+
+def test_formatter_round_trips_unicode_on_non_utf8_hosts(tmp_path, monkeypatch):
+    from desloppify.languages.kotlin import fixers
+
+    # Exercise real subprocess pipes with ktlint's UTF-8 protocol, while
+    # simulating the legacy Windows locale independently of the test host.
+    original_run = subprocess.run
+    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "cp1252")
+
+    def run(argv, **kwargs):
+        script = (
+            "import sys; data = sys.stdin.buffer.read().decode('utf-8', 'replace').encode('utf-8'); "
+            "sys.stdout.buffer.write("
+            + ("data" if "--format" in argv else "b'[]'")
+            + ")"
+        )
+        return original_run([sys.executable, "-c", script], **kwargs)
+
+    monkeypatch.setattr(fixers.subprocess, "run", run)
+    source = 'val label = "caf\u00e9"\n'
+    assert fixers._format_source(tmp_path / "Example.kt", source, tmp_path) == (source, True)
 
 
 requires_ktlint = pytest.mark.skipif(shutil.which("ktlint") is None, reason="ktlint is not installed")

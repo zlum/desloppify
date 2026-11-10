@@ -23,7 +23,10 @@ KTLINT_COMMAND = "ktlint --reporter=json --log-level=none"
 def _format_source(filepath: Path, source: str, root: Path) -> tuple[str, bool] | None:
     """Use stdin so file names are never interpreted as formatting globs."""
     common = ["ktlint", "--stdin", "--stdin-path", str(filepath), "--log-level=none"]
-    options = {"cwd": str(root), "capture_output": True, "text": True, "timeout": 120}
+    options = {
+        "cwd": str(root), "capture_output": True, "text": True,
+        "encoding": "utf-8", "timeout": 120,
+    }
     formatted = subprocess.run([*common, "--format"], input=source, **options)
     # ktlint can return exit 0 with empty stdout for a syntax error.
     if formatted.returncode not in (0, 1) or not formatted.stdout:
